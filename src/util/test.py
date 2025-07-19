@@ -5,11 +5,17 @@ import json
 import asyncio
 from lib.mqtt_client import MQTTClient
 from lib.db import Database
+from lib.firebase import messaging
+from lib.ultrasonic_sensor import UltrasonicSensor
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(
     level="DEBUG", logger=logger, fmt="%(asctime)s [%(levelname)s] %(message)s"
 )
+
+TRIG = 23
+ECHO = 24
+sensor = UltrasonicSensor(trig_pin=TRIG, echo_pin=ECHO)
 
 
 async def test_simulate_trashbin(id, db: Database):
@@ -44,9 +50,26 @@ async def test_simulate_trashbin(id, db: Database):
                     "SELECT * FROM trashbins WHERE id = $1", id
                 )
 
+                if id == "-_gdHI4_ijhT6-O5uEAZ9":
+                    distance = sensor.get_distance()
+
+                    if distance is None:
+
+                        logger.error(
+                            f"{id}: Failed to read distance from ultrasonic sensor."
+                        )
+
+                        await asyncio.sleep(60)
+                        continue
+
+                    waste_level = int((distance / 100) * 100)
+                    logger.debug(
+                        f"{id}: Sensor distance: {distance} cm → Waste level: {waste_level}%"
+                    )
+
                 if not trashbin:
                     logger.warning(f"{id}: Trashbin not found in database.")
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(20)
                     continue
 
                 if waste_level > 20 and trashbin["is_collected"]:
@@ -67,20 +90,67 @@ async def test_simulate_trashbin(id, db: Database):
                         "UPDATE trashbins SET is_scheduled = TRUE, scheduled_at = NOW() WHERE id = $1",
                         id,
                     )
+                    trashbin = dict(trashbin)
                     trashbin["is_scheduled"] = True
+
+                    rows = await connection.fetch(
+                        """
+                        SELECT n.fcm_token
+                        FROM notifications n
+                        JOIN users u ON u.id = n.user_id
+                        WHERE u.role = 'collector' AND n.fcm_token IS NOT NULL
+                    """
+                    )
+
+                    tokens = list(
+                        {row["fcm_token"] for row in rows if row["fcm_token"]}
+                    )
+
+                    if tokens:
+                        try:
+                            fcm_message = messaging.MulticastMessage(
+                                notification=messaging.Notification(
+                                    title="Urgent Bin Alert",
+                                    body=f"{trashbin['name'] or 'A bin'} needs urgent collection!",
+                                ),
+                                webpush=messaging.WebpushConfig(
+                                    fcm_options=messaging.WebpushFCMOptions(
+                                        link=f"https://binspire-web.onrender.com/dashboard/map?trashbin_id={trashbin['id']}&view_trashbin=true"
+                                    )
+                                ),
+                                tokens=tokens,
+                            )
+
+                            response = messaging.send_each_for_multicast(fcm_message)
+                            logger.info(
+                                f"{id}: Sent notification to {response.success_count} collectors."
+                            )
+                            if response.failure_count > 0:
+                                logger.warning(
+                                    f"{id}: {response.failure_count} notifications failed."
+                                )
+                        except Exception as e:
+                            logger.error(
+                                f"{id}: Failed to send push notification - {e}",
+                                exc_info=True,
+                            )
 
             message = {
                 "trashbin": {
                     "id": trashbin["id"],
-                    "name": trashbin["name"],
-                    "location": trashbin["location"],
+                    "name": trashbin["name"] or "Unknown",
+                    "location": trashbin["location"] or "Unknown",
                     "isOperational": trashbin["is_operational"],
                     "isCollected": trashbin["is_collected"],
                     "latitude": (
-                        float(trashbin["latitude"]) if trashbin["latitude"] else None
+                        float(trashbin["latitude"])
+                        if trashbin["latitude"] is not None
+                        else 0.0
                     ),
                     "longitude": (
-                        float(trashbin["longitude"]) if trashbin["longitude"] else None
+                        float(trashbin["longitude"])
+                        if trashbin["longitude"] is not None
+                        else 0.0
                     ),
                 },
                 "status": {
@@ -94,7 +164,7 @@ async def test_simulate_trashbin(id, db: Database):
             client.publish(topic, json_message)
             logger.info(f"{id}: Published MQTT message to topic '{topic}'")
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(20)
 
     except asyncio.CancelledError:
         logger.warning(f"{id}: Task cancelled, disconnecting client.")

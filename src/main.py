@@ -5,7 +5,6 @@ from lib.db import Database
 from dotenv import load_dotenv
 from util.constants import TEST_TRASHBIN_IDS, TRASHBIN_IDS
 from util.test import test_simulate_trashbin
-from util.helpers import simulate_trashbin
 
 field_styles = {
     "asctime": {"color": "cyan"},
@@ -47,7 +46,7 @@ async def main():
         logging.error(f"DB error: {e}")
         return
 
-    tasks = [asyncio.create_task(simulate_trashbin(id, db)) for id in TRASHBIN_IDS]
+    tasks = [asyncio.create_task(test_simulate_trashbin(id, db)) for id in TRASHBIN_IDS]
 
     try:
         await asyncio.Event().wait()
