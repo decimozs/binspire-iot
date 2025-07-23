@@ -7,6 +7,7 @@ from lib.mqtt_client import MQTTClient
 from lib.db import Database
 from lib.firebase import messaging
 from lib.ultrasonic_sensor import UltrasonicSensor
+from lib.battery import get_battery_status
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(
@@ -63,6 +64,7 @@ async def test_simulate_trashbin(id, db: Database):
                         continue
 
                     waste_level = int((distance / 100) * 100)
+                    battery_level = get_battery_status()
                     logger.debug(
                         f"{id}: Sensor distance: {distance} cm → Waste level: {waste_level}%"
                     )
