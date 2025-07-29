@@ -5,16 +5,11 @@ import asyncio
 import coloredlogs
 from lib.mqtt_client import MQTTClient
 from lib.db import Database
-from lib.ultrasonic_sensor import UltrasonicSensor
 
 logger = logging.getLogger(__name__)
 coloredlogs.install(
     level="DEBUG", logger=logger, fmt="%(asctime)s [%(levelname)s] %(message)s"
 )
-
-TRIG = 23
-ECHO = 24
-sensor = UltrasonicSensor(trig_pin=TRIG, echo_pin=ECHO)
 
 
 async def simulate_trashbin(id, db: Database):
@@ -38,19 +33,6 @@ async def simulate_trashbin(id, db: Database):
             waste_level = random.randint(0, 100)
             weight_level = round(random.uniform(0, 30), 2)
             battery_level = random.randint(0, 100)
-
-            if id == "-_gdHI4_ijhT6-O5uEAZ9":
-                distance = sensor.get_distance()
-                if distance is None:
-                    logger.error(
-                        f"{id}: Failed to read distance from ultrasonic sensor."
-                    )
-                    await asyncio.sleep(60)
-                    continue
-                waste_level = int((distance / 100) * 100)
-                logger.debug(
-                    f"{id}: Sensor distance: {distance} cm → Waste level: {waste_level}%"
-                )
 
             urgency_score = (waste_level / 100) * 0.6 + (weight_level / 30) * 0.4
             logger.debug(
