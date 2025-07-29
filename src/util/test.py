@@ -65,6 +65,9 @@ async def test_simulate_trashbin(id, db: Database):
 
                     waste_level = int((distance / 100) * 100)
                     battery_level = get_battery_status()
+
+                    logger.info(f"battery_level: {battery_level}")
+
                     logger.debug(
                         f"{id}: Sensor distance: {distance} cm → Waste level: {waste_level}%"
                     )
